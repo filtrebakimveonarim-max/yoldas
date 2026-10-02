@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Android 11 ve sonrası: telefondaki metin okuma motorunu görebilmek için -->
+    <!-- Kullanıcıyı dinleyebilmek için (yalnızca Konuş butonuna basınca) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Android 11 ve sonrası: metin okuma ve ses tanıma motorlarını görebilmek için -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
 

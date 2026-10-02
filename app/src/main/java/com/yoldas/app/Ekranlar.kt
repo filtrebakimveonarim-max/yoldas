@@ -1,6 +1,10 @@
 package com.yoldas.app
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 
 private enum class Ekran { ANA, HAZIRLIK, AFET, REHBER, ALAN, SAKIN }
@@ -81,7 +86,11 @@ fun YoldasUygulama() {
                     sakinlesAc = { ekran = Ekran.SAKIN },
                     cik = { ekran = Ekran.ANA },
                 )
-                Ekran.REHBER -> RehberEkrani(Rehberler.bul(rehberId), bitti = { ekran = Ekran.AFET })
+                Ekran.REHBER -> RehberEkrani(
+                    Rehberler.bul(rehberId),
+                    rehberAc = { rehberId = it },
+                    bitti = { ekran = Ekran.AFET },
+                )
                 Ekran.ALAN -> ToplanmaEkrani(geri = { ekran = Ekran.AFET })
                 Ekran.SAKIN -> SakinlesEkrani(geri = { ekran = Ekran.AFET })
             }
@@ -336,6 +345,74 @@ private fun HazirlikEkrani(geri: () -> Unit) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Dinleme: mikrofon izni ve "Konuş" paneli                             */
+/* ------------------------------------------------------------------ */
+
+@Composable
+private fun rememberDinleyici(): Dinleyici {
+    val ctx = LocalContext.current
+    val dinleyici = remember { Dinleyici(ctx) }
+    DisposableEffect(Unit) {
+        onDispose { dinleyici.kapat() }
+    }
+    return dinleyici
+}
+
+/** Mikrofon izni varsa işi hemen yapar, yoksa önce izin ister. */
+@Composable
+private fun rememberMikrofonla(): (() -> Unit) -> Unit {
+    val ctx = LocalContext.current
+    var bekleyen by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val izinIste = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { verildi ->
+        val is_ = bekleyen
+        bekleyen = null
+        if (verildi) {
+            is_?.invoke()
+        } else {
+            Seslendirici.oku("Seni duyabilmem için mikrofon iznine ihtiyacım var. Butonlarla da devam edebilirsin.")
+        }
+    }
+    return { is_ ->
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            is_()
+        } else {
+            bekleyen = is_
+            izinIste.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+}
+
+private fun izinVar(ctx: android.content.Context) =
+    ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+/** Büyük "Konuş" butonu ve altında ne duyduğunu / ne olduğunu gösteren satır. */
+@Composable
+private fun KonusPaneli(
+    dinleyici: Dinleyici,
+    duyulan: String?,
+    ipucu: String,
+    onClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        BuyukButon(
+            yazi = if (dinleyici.dinliyor) "●  Dinliyorum… konuş" else "🎤  Konuş",
+            zemin = if (dinleyici.dinliyor) Renk.KirmiziAcik else Renk.Lamba,
+            yaziRengi = if (dinleyici.dinliyor) Color.White else Renk.LambaUstuYazi,
+            onClick = { if (dinleyici.dinliyor) dinleyici.durdur() else onClick() },
+            yukseklik = 72,
+            yaziBoyu = 22,
+        )
+        val satir = when {
+            dinleyici.dinliyor -> "Seni dinliyorum…"
+            dinleyici.uyari != null -> dinleyici.uyari!!
+            duyulan != null -> "Duyduğum: \"$duyulan\""
+            else -> ipucu
+        }
+        Text(satir, fontSize = 15.sp, color = Renk.GeceSoluk, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Afet modu                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -350,10 +427,57 @@ private fun AfetModu(
     var dudukAcik by remember { mutableStateOf(Duduk.calisiyor) }
     var isikAcik by remember { mutableStateOf(SosIsik.calisiyor) }
     val fenerVar = remember { SosIsik.destekleniyor(ctx) }
+    val dinleyici = rememberDinleyici()
+    val mikrofonla = rememberMikrofonla()
+    var duyulan by remember { mutableStateOf<String?>(null) }
+
+    fun dudukAc() {
+        Duduk.baslat()
+        dudukAcik = true
+    }
+
+    fun isikAc() {
+        if (fenerVar) {
+            SosIsik.baslat(ctx)
+            isikAcik = true
+        }
+    }
+
+    fun anlat() {
+        mikrofonla {
+            dinleyici.dinle { metin ->
+                duyulan = metin
+                if (metin == null) {
+                    if (dinleyici.uyari == "Seni duyamadım.") {
+                        Seslendirici.oku("Seni duyamadım. Tekrar Konuş'a basıp söyle ya da bir kutuya dokun.")
+                    }
+                    return@dinle
+                }
+                when (Anlayici.durum(metin)) {
+                    Niyet.KANAMA -> rehberAc("kanama")
+                    Niyet.ENKAZ -> rehberAc("enkaz")
+                    Niyet.GAZ -> rehberAc("gaz")
+                    Niyet.PANIK -> rehberAc("panik")
+                    Niyet.ALAN -> alanAc()
+                    Niyet.DUDUK -> {
+                        dudukAc()
+                        Seslendirici.oku("Düdüğü başlattım. On beş saniyede bir çalacak.")
+                    }
+                    Niyet.ISIK -> {
+                        isikAc()
+                        Seslendirici.oku(if (fenerVar) "SOS ışığını yaktım." else "Bu telefonda fener bulunamadı.")
+                    }
+                    else -> Seslendirici.oku(
+                        "Seni tam anlayamadım. Kanama, enkaz, gaz kokusu ya da korkuyorum gibi kısa söyle, ya da bir kutuya dokun."
+                    )
+                }
+            }
+        }
+    }
 
     EkranAcikKalsin()
     LaunchedEffect(Unit) {
-        Seslendirici.oku("Afet modu açık. Ne olduğunu seç.")
+        Seslendirici.oku("Afet modu açık. Konuş butonuna basıp ne olduğunu anlatabilir ya da bir kutuya dokunabilirsin.")
     }
 
     EkranSutunu {
@@ -374,7 +498,15 @@ private fun AfetModu(
         }
 
         Text("Ne oldu?", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GeceYazi)
-        Text("Durumuna uyan kutuya dokun, adım adım yol göstereyim.", fontSize = 16.sp, color = Renk.GeceSoluk)
+
+        KonusPaneli(
+            dinleyici = dinleyici,
+            duyulan = duyulan,
+            ipucu = "Örnek: \"Annemin bacağı kanıyor\", \"Enkaz altındayım\"",
+            onClick = { anlat() },
+        )
+
+        Text("Ya da durumuna uyan kutuya dokun:", fontSize = 16.sp, color = Renk.GeceSoluk)
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Kutu("Yaralı var", "Kanama, yara", Renk.KirmiziAcik, Modifier.weight(1f)) { rehberAc("kanama") }
@@ -426,10 +558,11 @@ private fun AfetModu(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    // Çıkarken düdüğü, ışığı ve sesi kapat
+                    // Çıkarken düdüğü, ışığı, sesi ve dinlemeyi kapat
                     Duduk.durdur()
                     SosIsik.durdur(ctx)
                     Seslendirici.sus()
+                    dinleyici.durdur()
                     cik()
                 }
                 .padding(14.dp),
@@ -464,20 +597,92 @@ private fun Kutu(
 }
 
 /* ------------------------------------------------------------------ */
-/* Adım adım rehber                                                     */
+/* Adım adım rehber: sesle ilerleme ve soru-cevap                        */
 /* ------------------------------------------------------------------ */
 
 @Composable
-private fun RehberEkrani(rehber: Rehber, bitti: () -> Unit) {
+private fun RehberEkrani(rehber: Rehber, rehberAc: (String) -> Unit, bitti: () -> Unit) {
+    val ctx = LocalContext.current
     var sira by remember(rehber.id) { mutableIntStateOf(0) }
+    var yanit by remember(rehber.id, sira) { mutableStateOf<String?>(null) }
+    var duyulan by remember { mutableStateOf<String?>(null) }
+    // Kullanıcı bir kez Konuş'a basınca, sonraki adımlarda okuma bitince kendiliğinden dinler
+    var elleriSerbest by remember { mutableStateOf(false) }
+    val dinleyici = rememberDinleyici()
+    val mikrofonla = rememberMikrofonla()
+
     val adim = rehber.adimlar[sira]
     val son = sira == rehber.adimlar.lastIndex
 
+    fun cevapla(evet: Boolean) {
+        val metin = if (evet) adim.evetCevap else adim.hayirCevap
+        if ((evet && adim.evetteDuduk) || (!evet && adim.hayirdaDuduk)) Duduk.baslat()
+        yanit = metin
+        metin?.let { Seslendirici.oku(it) }
+    }
+
+    fun ileri() {
+        if (son) bitti() else sira++
+    }
+
+    // dinle() ve isle() birbirini çağırır; bu yüzden önce bildirip sonra tanımlıyoruz
+    lateinit var dinle: () -> Unit
+
+    fun isle(metin: String?) {
+        duyulan = metin
+        if (metin == null) return
+        when (Anlayici.komut(metin)) {
+            Niyet.SONRAKI -> ileri()
+            Niyet.ONCEKI -> if (sira > 0) sira--
+            Niyet.TEKRAR -> Seslendirici.oku("${adim.baslik} ${adim.aciklama} ${adim.soru ?: ""}") { if (elleriSerbest) dinle() }
+            Niyet.DUR -> {
+                Seslendirici.sus()
+                elleriSerbest = false
+            }
+            Niyet.EVET -> if (adim.soru != null) {
+                val m = adim.evetCevap ?: ""
+                if (adim.evetteDuduk) Duduk.baslat()
+                yanit = m
+                Seslendirici.oku("$m Hazırsan sonraki de.") { if (elleriSerbest) dinle() }
+            } else ileri()
+            Niyet.HAYIR -> if (adim.soru != null) {
+                val m = adim.hayirCevap ?: ""
+                if (adim.hayirdaDuduk) Duduk.baslat()
+                yanit = m
+                Seslendirici.oku("$m Hazırsan sonraki de.") { if (elleriSerbest) dinle() }
+            }
+            Niyet.DUDUK -> {
+                Duduk.baslat()
+                Seslendirici.oku("Düdüğü başlattım.")
+            }
+            Niyet.ISIK -> {
+                SosIsik.baslat(ctx)
+                Seslendirici.oku("SOS ışığını yaktım.")
+            }
+            Niyet.KANAMA -> if (rehber.id != "kanama") rehberAc("kanama")
+            Niyet.ENKAZ -> if (rehber.id != "enkaz") rehberAc("enkaz")
+            Niyet.GAZ -> if (rehber.id != "gaz") rehberAc("gaz")
+            Niyet.PANIK -> if (rehber.id != "panik") rehberAc("panik")
+            else -> Seslendirici.oku("Anlayamadım. Sonraki, tekrar ya da dur diyebilirsin.")
+        }
+    }
+
+    dinle = {
+        mikrofonla {
+            elleriSerbest = true
+            dinleyici.dinle { metin -> isle(metin) }
+        }
+    }
+
     EkranAcikKalsin()
 
-    // Her adım açıldığında sesli oku
+    // Her adım açıldığında sesli oku; eller serbest moddaysa okuma bitince dinle
     LaunchedEffect(rehber.id, sira) {
-        Seslendirici.oku("Adım ${sira + 1}. ${adim.baslik} ${adim.aciklama}")
+        duyulan = null
+        val soruMetni = adim.soru?.let { " $it Evet ya da hayır de." } ?: ""
+        Seslendirici.oku("Adım ${sira + 1}. ${adim.baslik} ${adim.aciklama}$soruMetni") {
+            if (elleriSerbest && izinVar(ctx)) dinle()
+        }
     }
     DisposableEffect(Unit) {
         onDispose { Seslendirici.sus() }
@@ -496,15 +701,43 @@ private fun RehberEkrani(rehber: Rehber, bitti: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
         Text(adim.baslik, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GeceYazi)
         Text(adim.aciklama, fontSize = 20.sp, lineHeight = 29.sp, color = Color(0xFFC9D3E0))
-        Spacer(Modifier.height(16.dp))
+
+        // Bu adımda bir soru varsa: evet / hayır
+        adim.soru?.let { soru ->
+            Kart(koyu = true) {
+                Text(soru, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Renk.Lamba)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        BuyukButon("Evet", Renk.Yesil, Color.White, { cevapla(true) }, yukseklik = 60)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        BuyukButon("Hayır", Renk.Kirmizi, Color.White, { cevapla(false) }, yukseklik = 60)
+                    }
+                }
+                yanit?.let {
+                    Text(it, fontSize = 18.sp, lineHeight = 26.sp, color = Renk.GeceYazi)
+                }
+            }
+        }
+
+        KonusPaneli(
+            dinleyici = dinleyici,
+            duyulan = duyulan,
+            ipucu = if (adim.soru != null) "\"Evet\", \"hayır\", \"tekrar\" ya da \"sonraki\" diyebilirsin"
+            else "Ellerin meşgulse \"sonraki\", \"tekrar\" ya da \"dur\" de",
+            onClick = { dinle() },
+        )
+
         BuyukButon(
             yazi = if (son) "Tamam, afet moduna dön" else "Yaptım, sonraki adım",
-            zemin = Renk.Lamba,
-            yaziRengi = Renk.LambaUstuYazi,
-            onClick = { if (son) bitti() else sira++ },
+            zemin = Color.Transparent,
+            yaziRengi = Renk.GeceYazi,
+            cerceve = Renk.GeceCizgi,
+            onClick = { ileri() },
+            yukseklik = 64,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.weight(1f)) {
@@ -512,7 +745,7 @@ private fun RehberEkrani(rehber: Rehber, bitti: () -> Unit) {
                     "Tekrar oku",
                     Color.Transparent,
                     Renk.GeceYazi,
-                    { Seslendirici.oku("${adim.baslik} ${adim.aciklama}") },
+                    { Seslendirici.oku("${adim.baslik} ${adim.aciklama} ${adim.soru ?: ""}") },
                     Renk.GeceCizgi,
                     52,
                     17,
