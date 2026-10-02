@@ -27,8 +27,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -89,6 +93,16 @@ fun YoldasUygulama() {
 /* Ortak parçalar                                                      */
 /* ------------------------------------------------------------------ */
 
+/** Afet ekranlarında ekranın kendiliğinden kararmasını engeller. */
+@Composable
+private fun EkranAcikKalsin() {
+    val gorunum = LocalView.current
+    DisposableEffect(Unit) {
+        gorunum.keepScreenOn = true
+        onDispose { gorunum.keepScreenOn = false }
+    }
+}
+
 @Composable
 private fun EkranSutunu(icerik: @Composable ColumnScope.() -> Unit) {
     Column(
@@ -109,6 +123,7 @@ private fun BuyukButon(
     onClick: () -> Unit,
     cerceve: Color? = null,
     yukseklik: Int = 72,
+    yaziBoyu: Int = 20,
 ) {
     Button(
         onClick = onClick,
@@ -118,7 +133,7 @@ private fun BuyukButon(
         border = cerceve?.let { BorderStroke(2.dp, it) },
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text(yazi, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text(yazi, fontSize = yaziBoyu.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
     }
 }
 
@@ -173,6 +188,40 @@ private fun IlerlemeCubugu(oran: Float, zemin: Color, dolgu: Color, kalinlik: In
     }
 }
 
+/** Sesli okumayı açıp kapatan satır. */
+@Composable
+private fun SesSatiri() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Renk.GeceKart, RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Sesli okuma", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Renk.GeceYazi)
+            if (Seslendirici.hazir && !Seslendirici.turkceVar) {
+                Text(
+                    "Telefonunda Türkçe ses yok. Ayarlar → Metin okuma'dan Türkçe sesi indir.",
+                    fontSize = 13.sp,
+                    color = Renk.GeceSoluk,
+                )
+            }
+        }
+        Switch(
+            checked = Seslendirici.acik,
+            onCheckedChange = {
+                Seslendirici.acik = it
+                if (!it) Seslendirici.sus()
+            },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Renk.LambaUstuYazi,
+                checkedTrackColor = Renk.Lamba,
+            ),
+        )
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Ana sayfa (günlük mod)                                               */
 /* ------------------------------------------------------------------ */
@@ -185,35 +234,56 @@ private fun AnaSayfa(hazirligaGit: () -> Unit, acilDurum: () -> Unit) {
     val oran = tamamlanan.toFloat() / Hazirlik.gorevler.size
     val siradaki = Hazirlik.gorevler.indices.firstOrNull { !durum[it] }?.let { Hazirlik.gorevler[it] }
 
-    EkranSutunu {
-        Text("Yoldaş", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GunYazi)
-        Text("Afet anında ve her gün yanında.", fontSize = 16.sp, color = Renk.GunSoluk)
+    Column(Modifier.fillMaxSize()) {
+        // Kaydırılabilen üst kısım
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Yoldaş", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GunYazi)
+            Text("Afet anında ve her gün yanında.", fontSize = 17.sp, color = Renk.GunSoluk)
 
-        Kart {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Depreme hazırlık", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
-                Text("%${(oran * 100).toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.LambaKoyu)
+            Kart {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Depreme hazırlık", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
+                    Text("%${(oran * 100).toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.LambaKoyu)
+                }
+                IlerlemeCubugu(oran, zemin = Color(0xFFEDF0F4), dolgu = Renk.Lamba)
+                Text(
+                    siradaki?.let { "Sıradaki görev: $it" } ?: "Tüm görevler tamam. Hazırsın.",
+                    fontSize = 16.sp,
+                    color = Renk.GunYazi,
+                )
+                BuyukButon("Görevlere git", Renk.GunYazi, Color.White, hazirligaGit, yukseklik = 52, yaziBoyu = 18)
             }
-            IlerlemeCubugu(oran, zemin = Color(0xFFEDF0F4), dolgu = Renk.Lamba)
-            Text(
-                siradaki?.let { "Sıradaki görev: $it" } ?: "Tüm görevler tamam. Hazırsın.",
-                fontSize = 16.sp,
-                color = Renk.GunYazi,
-            )
-            BuyukButon("Görevlere git", Renk.GunYazi, Color.White, hazirligaGit, yukseklik = 52)
+
+            Kart {
+                Text("İnternetsiz çalışır", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
+                Text(
+                    "İlk yardım rehberleri, düdük ve SOS ışığı telefonunda kayıtlı. Şebeke çökse de çalışır.",
+                    fontSize = 16.sp,
+                    color = Renk.GunSoluk,
+                )
+            }
         }
 
-        Kart {
-            Text("İnternetsiz çalışır", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
+        // Her zaman altta duran acil durum alanı
+        Column(
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 20.dp, top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Text(
-                "İlk yardım rehberleri, düdük ve SOS ışığı telefonunda kayıtlı. Şebeke çökse de çalışır.",
-                fontSize = 16.sp,
+                "Deprem ya da acil bir durumda bu butona bas.",
+                fontSize = 15.sp,
                 color = Renk.GunSoluk,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
             )
+            BuyukButon("⚠  ACİL DURUM", Renk.Kirmizi, Color.White, acilDurum, yukseklik = 84, yaziBoyu = 24)
         }
-
-        Spacer(Modifier.height(24.dp))
-        BuyukButon("⚠  Acil durum", Renk.Kirmizi, Color.White, acilDurum)
     }
 }
 
@@ -232,6 +302,7 @@ private fun HazirlikEkrani(geri: () -> Unit) {
         Kart {
             Text("%${(oran * 100).toInt()} hazırsın", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
             IlerlemeCubugu(oran, zemin = Color(0xFFEDF0F4), dolgu = Renk.Lamba)
+            Text("Yaptığın görevlere dokunarak işaretle.", fontSize = 15.sp, color = Renk.GunSoluk)
         }
         Kart {
             Hazirlik.gorevler.forEachIndexed { i, gorev ->
@@ -280,6 +351,11 @@ private fun AfetModu(
     var isikAcik by remember { mutableStateOf(SosIsik.calisiyor) }
     val fenerVar = remember { SosIsik.destekleniyor(ctx) }
 
+    EkranAcikKalsin()
+    LaunchedEffect(Unit) {
+        Seslendirici.oku("Afet modu açık. Ne olduğunu seç.")
+    }
+
     EkranSutunu {
         Row(
             Modifier.fillMaxWidth(),
@@ -298,16 +374,17 @@ private fun AfetModu(
         }
 
         Text("Ne oldu?", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GeceYazi)
+        Text("Durumuna uyan kutuya dokun, adım adım yol göstereyim.", fontSize = 16.sp, color = Renk.GeceSoluk)
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Kutu("Yaralı var", Renk.KirmiziAcik, Modifier.weight(1f)) { rehberAc("kanama") }
-            Kutu("Enkaz altındayım", Renk.Lamba, Modifier.weight(1f)) { rehberAc("enkaz") }
+            Kutu("Yaralı var", "Kanama, yara", Renk.KirmiziAcik, Modifier.weight(1f)) { rehberAc("kanama") }
+            Kutu("Enkaz altındayım", "Sıkıştım, çıkamıyorum", Renk.Lamba, Modifier.weight(1f)) { rehberAc("enkaz") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Kutu("Gaz kokusu", Color(0xFF8FB4E8), Modifier.weight(1f)) { rehberAc("gaz") }
-            Kutu("Toplanma alanı", Renk.YesilAcik, Modifier.weight(1f), alanAc)
+            Kutu("Gaz kokusu", "Kaçak şüphesi", Color(0xFF8FB4E8), Modifier.weight(1f)) { rehberAc("gaz") }
+            Kutu("Toplanma alanı", "Nereye gideyim?", Renk.YesilAcik, Modifier.weight(1f), alanAc)
         }
-        Kutu("Çok korkuyorum", Renk.GeceSoluk, Modifier.fillMaxWidth()) { rehberAc("panik") }
+        Kutu("Çok korkuyorum", "Sakinleşmeme yardım et", Renk.GeceSoluk, Modifier.fillMaxWidth()) { rehberAc("panik") }
 
         Text(
             "KURTARILMANA YARDIMCI OLUR",
@@ -316,7 +393,7 @@ private fun AfetModu(
             color = Renk.GeceSoluk,
         )
         BuyukButon(
-            yazi = if (dudukAcik) "Düdüğü durdur" else "Düdük çal (15 sn'de bir)",
+            yazi = if (dudukAcik) "Düdük çalıyor · Durdur" else "Düdük çal (15 sn'de bir)",
             zemin = if (dudukAcik) Renk.Lamba else Color.Transparent,
             yaziRengi = if (dudukAcik) Renk.LambaUstuYazi else Renk.GeceYazi,
             cerceve = if (dudukAcik) null else Renk.GeceCizgi,
@@ -328,7 +405,7 @@ private fun AfetModu(
         )
         if (fenerVar) {
             BuyukButon(
-                yazi = if (isikAcik) "SOS ışığını durdur" else "SOS ışığı (fener)",
+                yazi = if (isikAcik) "SOS ışığı yanıyor · Durdur" else "SOS ışığı (fener)",
                 zemin = if (isikAcik) Renk.Lamba else Color.Transparent,
                 yaziRengi = if (isikAcik) Renk.LambaUstuYazi else Renk.GeceYazi,
                 cerceve = if (isikAcik) null else Renk.GeceCizgi,
@@ -341,12 +418,20 @@ private fun AfetModu(
         }
         BuyukButon("Sakinleş: nefes egzersizi", Color.Transparent, Renk.GeceYazi, sakinlesAc, Renk.GeceCizgi, 60)
 
-        Spacer(Modifier.height(8.dp))
+        SesSatiri()
+
+        Spacer(Modifier.height(4.dp))
         Text(
             "Afet modundan çık",
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = cik)
+                .clickable {
+                    // Çıkarken düdüğü, ışığı ve sesi kapat
+                    Duduk.durdur()
+                    SosIsik.durdur(ctx)
+                    Seslendirici.sus()
+                    cik()
+                }
                 .padding(14.dp),
             textAlign = TextAlign.Center,
             color = Renk.Lamba,
@@ -356,18 +441,25 @@ private fun AfetModu(
 }
 
 @Composable
-private fun Kutu(yazi: String, isaret: Color, modifier: Modifier, onClick: () -> Unit) {
+private fun Kutu(
+    yazi: String,
+    aciklama: String,
+    isaret: Color,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
     Column(
         modifier = modifier
-            .heightIn(min = 92.dp)
+            .heightIn(min = 104.dp)
             .background(Renk.GeceKart, RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
             .padding(14.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Box(Modifier.size(14.dp).background(isaret, CircleShape))
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
         Text(yazi, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GeceYazi)
+        Text(aciklama, fontSize = 14.sp, color = Renk.GeceSoluk)
     }
 }
 
@@ -381,9 +473,19 @@ private fun RehberEkrani(rehber: Rehber, bitti: () -> Unit) {
     val adim = rehber.adimlar[sira]
     val son = sira == rehber.adimlar.lastIndex
 
+    EkranAcikKalsin()
+
+    // Her adım açıldığında sesli oku
+    LaunchedEffect(rehber.id, sira) {
+        Seslendirici.oku("Adım ${sira + 1}. ${adim.baslik} ${adim.aciklama}")
+    }
+    DisposableEffect(Unit) {
+        onDispose { Seslendirici.sus() }
+    }
+
     EkranSutunu {
         GeriSatiri(rehber.ad, bitti)
-        Text("Adım ${sira + 1} / ${rehber.adimlar.size}", color = Renk.GeceSoluk, fontSize = 15.sp)
+        Text("Adım ${sira + 1} / ${rehber.adimlar.size}", color = Renk.GeceSoluk, fontSize = 16.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             rehber.adimlar.indices.forEach { i ->
                 Box(
@@ -394,19 +496,35 @@ private fun RehberEkrani(rehber: Rehber, bitti: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
         Text(adim.baslik, fontSize = 34.sp, lineHeight = 38.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GeceYazi)
-        Text(adim.aciklama, fontSize = 19.sp, lineHeight = 28.sp, color = Color(0xFFC9D3E0))
-        Spacer(Modifier.height(24.dp))
+        Text(adim.aciklama, fontSize = 20.sp, lineHeight = 29.sp, color = Color(0xFFC9D3E0))
+        Spacer(Modifier.height(16.dp))
         BuyukButon(
             yazi = if (son) "Tamam, afet moduna dön" else "Yaptım, sonraki adım",
             zemin = Renk.Lamba,
             yaziRengi = Renk.LambaUstuYazi,
             onClick = { if (son) bitti() else sira++ },
         )
-        if (sira > 0) {
-            BuyukButon("Önceki adım", Color.Transparent, Renk.GeceYazi, { sira-- }, Renk.GeceCizgi, 52)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.weight(1f)) {
+                BuyukButon(
+                    "Tekrar oku",
+                    Color.Transparent,
+                    Renk.GeceYazi,
+                    { Seslendirici.oku("${adim.baslik} ${adim.aciklama}") },
+                    Renk.GeceCizgi,
+                    52,
+                    17,
+                )
+            }
+            if (sira > 0) {
+                Box(Modifier.weight(1f)) {
+                    BuyukButon("Önceki adım", Color.Transparent, Renk.GeceYazi, { sira-- }, Renk.GeceCizgi, 52, 17)
+                }
+            }
         }
+        SesSatiri()
         Text(rehber.altNot, color = Renk.GeceSoluk, fontSize = 14.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
     }
 }
@@ -427,6 +545,11 @@ private fun ToplanmaEkrani(geri: () -> Unit) {
     )
     EkranSutunu {
         GeriSatiri("Toplanma alanları", geri)
+        Text(
+            "Bu bölüm henüz hazırlanıyor. Şimdilik e-Devlet'teki AFAD toplanma alanı sorgulamasından kendi alanını öğrenip not et.",
+            fontSize = 16.sp,
+            color = Renk.GeceYazi,
+        )
         alanlar.forEach { a ->
             Kart(koyu = true) {
                 Text(a.ad, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GeceYazi)
@@ -434,7 +557,7 @@ private fun ToplanmaEkrani(geri: () -> Unit) {
             }
         }
         Text(
-            "Bunlar örnek veriler. Bir sonraki adımda gerçek toplanma alanlarını ve haritayı ekleyeceğiz.",
+            "Yukarıdakiler örnek veridir; gerçek alanları bir sonraki sürümlerde ekleyeceğiz.",
             fontSize = 14.sp,
             color = Renk.GeceSoluk,
         )
@@ -450,11 +573,19 @@ private fun SakinlesEkrani(geri: () -> Unit) {
     var evre by remember { mutableStateOf("Nefes al") }
     var sayi by remember { mutableIntStateOf(4) }
 
+    EkranAcikKalsin()
+    DisposableEffect(Unit) {
+        onDispose { Seslendirici.sus() }
+    }
+
     LaunchedEffect(Unit) {
+        Seslendirici.oku("Yalnız değilsin. Birlikte nefes alalım.")
+        delay(2500)
         val evreler = listOf("Nefes al" to 4, "Tut" to 4, "Yavaşça ver" to 6)
         while (true) {
             for ((ad, sure) in evreler) {
                 evre = ad
+                Seslendirici.oku(ad)
                 for (s in sure downTo 1) {
                     sayi = s
                     delay(1000)
@@ -479,5 +610,6 @@ private fun SakinlesEkrani(geri: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.weight(1f))
+        SesSatiri()
     }
 }

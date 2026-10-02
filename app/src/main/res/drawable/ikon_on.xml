@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Yoldaş simgesi: gece mavisi zemin üzerinde lamba turuncusu halka ve Y harfi -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M54,29 a25,25 0 1,1 0,50 a25,25 0 1,1 0,-50"
+        android:strokeColor="#F2A541"
+        android:strokeWidth="5"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M43,42 L54,55 L65,42 M54,55 L54,68"
+        android:strokeColor="#F2A541"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+</vector>
