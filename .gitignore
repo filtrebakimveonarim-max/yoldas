@@ -5,3 +5,7 @@ local.properties
 .idea/
 *.iml
 .DS_Store
+ios/build/
+ios/*.xcodeproj/
+ios/Payload/
+ios/*.ipa

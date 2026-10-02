@@ -1,0 +1,64 @@
+name: iPhone IPA derle
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  derle:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen kur
+        run: brew install xcodegen
+
+      - name: Xcode projesini oluştur
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Uygulamayı derle (imzasız)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Yoldas.xcodeproj \
+            -scheme Yoldas \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee derleme.log | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/Yoldas.app
+
+      - name: Hata kaydını sakla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: derleme-kaydi
+          path: ios/derleme.log
+
+      - name: IPA paketle
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Yoldas.app Payload/
+          zip -qry Yoldas.ipa Payload
+
+      - name: iPhone sürümünü yayınla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete son-surum-iphone -y --cleanup-tag || true
+          gh release create son-surum-iphone ios/Yoldas.ipa \
+            --title "Yoldaş · iPhone son sürüm" \
+            --latest=false \
+            --notes "Otomatik derlendi: ${GITHUB_SHA::7}. Windows'ta Sideloadly ile iPhone'a kur."

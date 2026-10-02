@@ -3,6 +3,9 @@ name: APK derle
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
   workflow_dispatch:
 
 permissions:
@@ -41,4 +44,5 @@ jobs:
           gh release delete son-surum -y --cleanup-tag || true
           gh release create son-surum Yoldas.apk \
             --title "Yoldaş · son sürüm" \
+            --latest \
             --notes "Otomatik derlendi: ${GITHUB_SHA::7}. Telefonundan Yoldas.apk dosyasını indirip kur."

@@ -1,0 +1,35 @@
+name: Yoldas
+options:
+  bundleIdPrefix: com.yoldas
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Yoldas:
+    type: application
+    platform: iOS
+    sources:
+      - Yoldas
+    info:
+      path: Yoldas/Info.plist
+      properties:
+        CFBundleDisplayName: Yoldaş
+        CFBundleShortVersionString: "0.4"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
+        NSMicrophoneUsageDescription: Afet anında seni duyabilmem ve ne olduğunu anlayabilmem için mikrofon gerekli. Yalnızca Konuş'a bastığında ya da "İyi misin?" sorusundan sonra dinlerim.
+        NSSpeechRecognitionUsageDescription: Söylediklerini yazıya çevirip doğru rehberi açabilmem için konuşma tanıma gerekli. Telefon destekliyorsa bu iş internetsiz, telefonun içinde yapılır.
+        NSMotionUsageDescription: Güçlü bir deprem sarsıntısını fark edip sana "İyi misin?" diye sorabilmem için hareket sensörleri gerekli.
+        NSCameraUsageDescription: SOS ışığı için telefonun fenerini kullanırım; kamera ile görüntü almam.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yoldas.app
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
