@@ -925,7 +925,7 @@ private fun AlgilamaKarti() {
             )
         }
         Text(
-            "Deneme sürümü: Telefonun düşmesi, cepte yürümek ya da araç titreşimi alarm vermemeli. Yanlış alarm olursa bana bildir.",
+            "Ekran kapalıyken çalışır. Deneme sürümü: Yürümek, ayağa kalkmak ya da telefonun düşmesi alarm vermemeli.",
             fontSize = 13.sp,
             color = Renk.GunSoluk,
         )

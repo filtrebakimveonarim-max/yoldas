@@ -10,6 +10,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -20,6 +21,7 @@ import androidx.core.content.ContextCompat
 class DepremBekcisi : Service(), SensorEventListener {
     private lateinit var sensorler: SensorManager
     private val algilayici = Algilayici()
+    private lateinit var guc: PowerManager
 
     override fun onCreate() {
         super.onCreate()
@@ -37,6 +39,7 @@ class DepremBekcisi : Service(), SensorEventListener {
             startForeground(BEKCI_BILDIRIM, bildirim)
         }
 
+        guc = getSystemService(Context.POWER_SERVICE) as PowerManager
         sensorler = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         // Mümkünse ekran kapalıyken de telefonu uyandırabilen ivmeölçeri kullan
         val ivme = sensorler.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true)
@@ -54,7 +57,10 @@ class DepremBekcisi : Service(), SensorEventListener {
         when (olay.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
                 val v = olay.values
-                if (algilayici.ivme(olay.timestamp, v[0], v[1], v[2])) {
+                val tetik = algilayici.ivme(olay.timestamp, v[0], v[1], v[2])
+                // Ekran açıksa telefonu biri kullanıyor: uyanık, gerekirse kendisi basar.
+                // Elde sallamak gibi yanlış alarmları önlemek için yalnızca ekran kapalıyken sor.
+                if (tetik && !guc.isInteractive) {
                     Alarm.baslat(this, cokme = algilayici.cokmeSuphesi)
                 }
             }

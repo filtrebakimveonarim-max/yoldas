@@ -1,5 +1,6 @@
 package com.yoldas.app
 
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -8,8 +9,11 @@ import kotlin.math.sqrt
  * Kural (hepsi birlikte sağlanmalı):
  *  1. ÖNCE SAKİN: Son 5–14 saniyede telefon neredeyse hareketsizdi
  *     (masada, komodinde, yerde). Cepte yürürken ya da elde tutarken tetiklenmez.
- *  2. SONRA GÜÇLÜ SALLANTI: Son 3 saniyenin çoğunda belirgin hareket var.
- *     Telefonun düşmesi tek bir darbedir, 3 saniye sürmez.
+ *  2. SONRA GÜÇLÜ SALLANTI: Son 4 saniyenin çoğunda belirgin hareket var.
+ *     Telefonun düşmesi tek bir darbedir; ayağa kalkmak 1-2 saniye sürer.
+ *  2b. YATAY SALLANTI: Hareket ağırlıklı olarak yatay. Yürürken, ayağa kalkarken
+ *     ya da merdiven çıkarken telefon daha çok aşağı yukarı hareket eder; depremde ise
+ *     en güçlü sarsıntı yataydır.
  *  3. ELE ALINMADI: Telefonun duruş yönü (yerçekimi yönü) neredeyse aynı kaldı.
  *     Telefonu alıp kaldırınca yön değişir; depremde telefon olduğu yerde sallanır.
  *
@@ -19,7 +23,10 @@ import kotlin.math.sqrt
  * Zamanlar sensör olaylarının nanosaniye cinsinden zaman damgalarıdır.
  */
 class Algilayici {
-    private class Ornek(val t: Long, val m: Float, val gx: Float, val gy: Float, val gz: Float)
+    private class Ornek(
+        val t: Long, val m: Float, val dikey: Float, val yatay: Float,
+        val gx: Float, val gy: Float, val gz: Float,
+    )
 
     private val ornekler = ArrayDeque<Ornek>()
     private val basinclar = ArrayDeque<Pair<Long, Float>>()
@@ -47,8 +54,12 @@ class Algilayici {
         val ly = y - gy
         val lz = z - gz
         val m = sqrt(lx * lx + ly * ly + lz * lz)
+        // Hareketin yerçekimi yönündeki (dikey) ve ona dik (yatay) kısımları
+        val gBoy = sqrt(gx * gx + gy * gy + gz * gz).coerceAtLeast(0.1f)
+        val dikey = abs((lx * gx + ly * gy + lz * gz) / gBoy)
+        val yatay = sqrt((m * m - dikey * dikey).coerceAtLeast(0f))
 
-        ornekler.addLast(Ornek(t, m, gx, gy, gz))
+        ornekler.addLast(Ornek(t, m, dikey, yatay, gx, gy, gz))
         while (ornekler.isNotEmpty() && t - ornekler.first().t > PENCERE_NS) ornekler.removeFirst()
 
         if (t - sonTetik < BEKLEME_NS) return false
@@ -60,10 +71,15 @@ class Algilayici {
         // 1. Önce sakin miydi?
         if (once.maxOf { it.m } > SAKIN_ESIK) return false
 
-        // 2. Son 3 saniye güçlü ve sürekli sallantı mı?
+        // 2. Son 4 saniye güçlü ve sürekli sallantı mı?
         val gucluOran = son.count { it.m > SALLANTI_ESIK }.toFloat() / son.size
         val ortalama = son.sumOf { it.m.toDouble() } / son.size
         if (gucluOran < GUCLU_ORAN || ortalama < ORTALAMA_ESIK) return false
+
+        // 2b. Sallantı ağırlıklı olarak yatay mı? (yürüme, ayağa kalkma dikeydir)
+        val dikeyEtki = sqrt(son.sumOf { (it.dikey * it.dikey).toDouble() } / son.size)
+        val yatayEtki = sqrt(son.sumOf { (it.yatay * it.yatay).toDouble() } / son.size)
+        if (yatayEtki < dikeyEtki * YATAY_ORAN) return false
 
         // 3. Telefon ele alınıp çevrilmedi mi?
         if (!ayniYonde(once.last(), son.last())) return false
@@ -96,15 +112,16 @@ class Algilayici {
     companion object {
         private const val YERCEKIMI_KATSAYI = 0.03f
         private const val PENCERE_NS = 15_000_000_000L
-        private const val SALLANTI_NS = 3_000_000_000L
-        private const val SAKIN_BAS_NS = 5_000_000_000L
+        private const val SALLANTI_NS = 4_000_000_000L
+        private const val SAKIN_BAS_NS = 6_000_000_000L
         private const val SAKIN_SON_NS = 14_000_000_000L
         private const val BEKLEME_NS = 120_000_000_000L
-        private const val EN_AZ_ORNEK = 30
+        private const val EN_AZ_ORNEK = 40
         private const val SAKIN_ESIK = 0.8f      // m/s²
         private const val SALLANTI_ESIK = 1.0f   // m/s²
-        private const val GUCLU_ORAN = 0.6f
+        private const val GUCLU_ORAN = 0.7f
         private const val ORTALAMA_ESIK = 1.2
+        private const val YATAY_ORAN = 1.0
         private const val YON_COS_ESIK = 0.866f  // yaklaşık 30 derece
         private const val BASINC_ESIK_HPA = 0.3   // yaklaşık 2,5 metre aşağı inme
     }
