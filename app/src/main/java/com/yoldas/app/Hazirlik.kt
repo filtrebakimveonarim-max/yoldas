@@ -12,6 +12,8 @@ object Hazirlik {
         "Kan grubunu ve ilaçlarını not et",
         "Geceleri telefonunu yanında tut",
         "Gaz ve elektrik vanalarının yerini öğren",
+        "Türkçe çevrimdışı ses paketini indir",
+        "Deprem algılamayı aç",
     )
 
     private fun tercihler(ctx: Context) =

@@ -2,6 +2,7 @@ package com.yoldas.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 private enum class Ekran { ANA, HAZIRLIK, AFET, REHBER, ALAN, SAKIN }
 
@@ -69,6 +71,34 @@ fun YoldasUygulama() {
             Ekran.REHBER, Ekran.ALAN, Ekran.SAKIN -> Ekran.AFET
             else -> Ekran.ANA
         }
+    }
+
+    // Sarsıntı alarmı sürerken her şeyin önüne "İyi misin?" ya da yardım sinyali ekranı gelir
+    val ctx = LocalContext.current
+    if (Alarm.durum != Alarm.Durum.YOK) {
+        BackHandler(enabled = true) { }
+        Surface(modifier = Modifier.fillMaxSize(), color = Renk.Gece) {
+            Box(Modifier.fillMaxSize().systemBarsPadding()) {
+                if (Alarm.durum == Alarm.Durum.SORULUYOR) {
+                    IyiMisinEkrani(
+                        iyi = { Alarm.iyiyim(ctx) },
+                        yardim = {
+                            Alarm.yardimLazim(ctx)
+                            ekran = Ekran.AFET
+                        },
+                    )
+                } else {
+                    YardimSinyaliEkrani(
+                        iyi = { Alarm.iyiyim(ctx) },
+                        afet = {
+                            Alarm.yardimLazim(ctx)
+                            ekran = Ekran.AFET
+                        },
+                    )
+                }
+            }
+        }
+        return
     }
 
     val karanlik = ekran != Ekran.ANA && ekran != Ekran.HAZIRLIK
@@ -268,6 +298,8 @@ private fun AnaSayfa(hazirligaGit: () -> Unit, acilDurum: () -> Unit) {
                 )
                 BuyukButon("Görevlere git", Renk.GunYazi, Color.White, hazirligaGit, yukseklik = 52, yaziBoyu = 18)
             }
+
+            AlgilamaKarti()
 
             Kart {
                 Text("İnternetsiz çalışır", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
@@ -844,5 +876,208 @@ private fun SakinlesEkrani(geri: () -> Unit) {
         )
         Spacer(Modifier.weight(1f))
         SesSatiri()
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Deprem algılama: ana sayfa kartı                                    */
+/* ------------------------------------------------------------------ */
+
+@Composable
+private fun AlgilamaKarti() {
+    val ctx = LocalContext.current
+    var acik by remember { mutableStateOf(DepremBekcisi.acikMi(ctx)) }
+
+    fun ac() {
+        DepremBekcisi.ac(ctx)
+        acik = true
+        Hazirlik.kaydet(ctx, 8, true)
+    }
+
+    val bildirimIzni = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ac() }
+
+    Kart {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Deprem algılama", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Renk.GunYazi)
+                Text(
+                    if (acik) "Açık. Güçlü bir sarsıntıda sana \"İyi misin?\" diye soracağım."
+                    else "Kapalı. Açarsan telefon sarsıntıyı kendisi fark eder.",
+                    fontSize = 15.sp,
+                    color = Renk.GunSoluk,
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            Switch(
+                checked = acik,
+                onCheckedChange = { yeni ->
+                    if (yeni) {
+                        val izinGerek = Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
+                        if (izinGerek) bildirimIzni.launch(Manifest.permission.POST_NOTIFICATIONS) else ac()
+                    } else {
+                        DepremBekcisi.kapat(ctx)
+                        acik = false
+                    }
+                },
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Renk.Yesil),
+            )
+        }
+        Text(
+            "Deneme sürümü: Telefonun düşmesi, cepte yürümek ya da araç titreşimi alarm vermemeli. Yanlış alarm olursa bana bildir.",
+            fontSize = 13.sp,
+            color = Renk.GunSoluk,
+        )
+        BuyukButon(
+            "Algılamayı dene (tatbikat)",
+            Color.Transparent,
+            Renk.GunYazi,
+            { Alarm.baslat(ctx, deneme = true) },
+            Renk.GunCizgi,
+            52,
+            17,
+        )
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sarsıntı sonrası: "İyi misin?"                                       */
+/* ------------------------------------------------------------------ */
+
+@Composable
+private fun IyiMisinEkrani(iyi: () -> Unit, yardim: () -> Unit) {
+    val dinleyici = rememberDinleyici()
+    val mikrofonla = rememberMikrofonla()
+    val ctx = LocalContext.current
+    var duyulan by remember { mutableStateOf<String?>(null) }
+
+    fun isle(metin: String?) {
+        duyulan = metin
+        val t = metin?.lowercase(Locale.forLanguageTag("tr-TR")) ?: return
+        val yardimKelimeleri = listOf("yardım", "yaralı", "kan", "sıkış", "enkaz", "hayır", "değil", "kötü")
+        when {
+            yardimKelimeleri.any { t.contains(it) } -> yardim()
+            t.contains("iyiyim") || t.contains("evet") || t.contains("iyi") -> iyi()
+            else -> Seslendirici.oku("Anlayamadım. İyiysen iyiyim, değilsen yardım lazım de.")
+        }
+    }
+
+    fun dinle() {
+        mikrofonla { dinleyici.dinle { isle(it) } }
+    }
+
+    EkranAcikKalsin()
+    // Soru okunduktan sonra, izin varsa kendiliğinden dinle
+    LaunchedEffect(Unit) {
+        delay(6000)
+        if (Alarm.durum == Alarm.Durum.SORULUYOR && izinVar(ctx)) dinle()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            (if (Alarm.tatbikat) "TATBİKAT · " else "") + "GÜÇLÜ SARSINTI ALGILANDI",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Renk.GeceSoluk,
+        )
+        if (Alarm.cokmeSuphesi) {
+            Text(
+                "Telefonun birkaç metre aşağı indiğini fark ettim.",
+                fontSize = 15.sp,
+                color = Renk.KirmiziAcik,
+                textAlign = TextAlign.Center,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Box(
+            Modifier
+                .size(150.dp)
+                .background(Color(0xFF2A2418), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("${Alarm.kalanSaniye}", fontSize = 56.sp, fontWeight = FontWeight.ExtraBold, color = Renk.Lamba)
+        }
+        Text("İyi misin?", fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, color = Renk.GeceYazi)
+        Text(
+            "Cevap vermezsen ${Alarm.kalanSaniye} saniye sonra seni bulmaları için düdük ve ışık sinyalini başlatacağım.",
+            fontSize = 17.sp,
+            lineHeight = 24.sp,
+            color = Renk.GeceSoluk,
+            textAlign = TextAlign.Center,
+        )
+        KonusPaneli(
+            dinleyici = dinleyici,
+            duyulan = duyulan,
+            ipucu = "\"İyiyim\" ya da \"Yardım lazım\" de",
+            onClick = { dinle() },
+        )
+        BuyukButon("Yardım lazım", Renk.KirmiziAcik, Color.White, yardim, yukseklik = 76, yaziBoyu = 22)
+        BuyukButon("İyiyim", Color.Transparent, Renk.GeceYazi, iyi, Renk.YesilAcik, 76, 22)
+        Text(
+            "Yanlış alarm, kapat",
+            modifier = Modifier
+                .clickable(onClick = iyi)
+                .padding(14.dp),
+            color = Renk.Lamba,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Cevap yok: yardım sinyali                                            */
+/* ------------------------------------------------------------------ */
+
+@Composable
+private fun YardimSinyaliEkrani(iyi: () -> Unit, afet: () -> Unit) {
+    val ctx = LocalContext.current
+    val fenerVar = remember { SosIsik.destekleniyor(ctx) }
+    EkranAcikKalsin()
+
+    EkranSutunu {
+        Text(
+            (if (Alarm.tatbikat) "TATBİKAT · " else "") + "CEVAP ALINAMADI",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Renk.KirmiziAcik,
+        )
+        Text(
+            "Seni bulmalarına yardım ediyorum",
+            fontSize = 32.sp,
+            lineHeight = 36.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Renk.GeceYazi,
+        )
+        Kart(koyu = true) {
+            SinyalSatiri("Düdük 15 saniyede bir çalıyor")
+            if (fenerVar) SinyalSatiri("SOS ışığı yanıp sönüyor")
+            SinyalSatiri("Telefon uyanık tutuluyor")
+            if (Alarm.cokmeSuphesi) SinyalSatiri("Bina çökmesi şüphesi kaydedildi")
+        }
+        Text(
+            "Yakında aile mesajı ve Bluetooth \"buradayım\" sinyali de eklenecek.",
+            fontSize = 14.sp,
+            color = Renk.GeceSoluk,
+        )
+        Spacer(Modifier.height(12.dp))
+        BuyukButon("Ben iyiyim, durdur", Color.Transparent, Renk.GeceYazi, iyi, Renk.YesilAcik, 76, 22)
+        BuyukButon("Yardım lazım: afet moduna geç", Renk.Lamba, Renk.LambaUstuYazi, afet, yukseklik = 72)
+    }
+}
+
+@Composable
+private fun SinyalSatiri(yazi: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(12.dp).background(Renk.Lamba, CircleShape))
+        Spacer(Modifier.size(12.dp))
+        Text(yazi, fontSize = 17.sp, color = Renk.GeceYazi)
     }
 }
